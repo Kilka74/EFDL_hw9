@@ -1,6 +1,5 @@
 from torch import nn as nn
-# from torchvision.models import ResNet101_Weights, resnet101
-from torchvision.models import ResNet18_Weights, resnet18
+from torchvision.models import ResNet101_Weights, resnet101
 
 
 class Identity(nn.Module):
@@ -16,10 +15,10 @@ class Resnet101(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         if pretrained:
-            self.model = resnet18(weights=ResNet18_Weights.DEFAULT)
+            self.model = resnet101(weights=ResNet101_Weights.DEFAULT)
         else:
-            self.model = resnet18()
-            self.model.layer3 = nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+            self.model = resnet101()
+            self.model.layer3 = self.model.layer3[0]
 
         self.model.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, bias=False)
         self.model.maxpool = Identity()
