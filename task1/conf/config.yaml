@@ -1,0 +1,6 @@
+n_epochs: 1
+device: cpu
+batch_size: 128
+num_workers: 8
+lr: 1e-4
+weight_decay: 0
