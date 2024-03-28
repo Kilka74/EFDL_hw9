@@ -3,7 +3,8 @@ import wandb
 from tqdm import tqdm
 from torch import nn
 from model import Resnet101
-from task1.dataset import download_data
+from dataset import download_data
+from torch.nn.functional import softmax, log_softmax
 
 
 def wandb_init(params):
@@ -39,21 +40,30 @@ def train_step_distilled(
     inputs = inputs.to(device)
     labels = labels.to(device)
     student_preds = student(inputs, return_temporary=add_mse)
-    teacher_preds = teacher(inputs, return_temporary=add_mse)
+    with torch.no_grad():
+        teacher_preds = teacher(inputs, return_temporary=add_mse)
     if not add_mse:
         student_loss = loss_fn(student_preds, labels)
-        distil_loss = loss_fn(student_preds, teacher_preds.softmax(dim=1))
-        loss = student_loss + distil_loss
+        distil_loss = loss_fn(
+            log_softmax(student_preds, dim=-1), softmax(teacher_preds, dim=-1)
+        )
+        loss = 0.75 * student_loss + 0.25 * distil_loss
     else:
         student_loss = loss_fn(student_preds[0], labels)
-        distil_loss = loss_fn(student_preds, teacher_preds.softmax(dim=1))
+        distil_loss = loss_fn(
+            log_softmax(student_preds, dim=-1), softmax(teacher_preds, dim=-1)
+        )
         mse = nn.MSELoss()
         loss = (
-            student_loss
-            + distil_loss
-            + mse(student_preds[1], teacher_preds[1])
-            + mse(student_preds[2], teacher_preds[2])
-            + mse(student_preds[3], teacher_preds[3])
+            0.5 * student_loss
+            + 0.25 * distil_loss
+            + 0.25
+            * 0.33
+            * (
+                mse(student_preds[1], teacher_preds[1])
+                + mse(student_preds[2], teacher_preds[2])
+                + mse(student_preds[3], teacher_preds[3])
+            )
         )
 
     loss.backward()
@@ -123,14 +133,19 @@ def train(
     params,
     path="default",
 ):
-    model = Resnet101(num_classes=10, pretrained=True).to(device)
+    model = Resnet101(num_classes=10, pretrained=False).to(device)
 
-    train_dataloader, test_dataloader = download_data(params["batch_size"], params["num_workers"])
+    train_dataloader, test_dataloader = download_data(
+        params["batch_size"], params["num_workers"]
+    )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=params["lr"], weight_decay=params["weight_decay"])
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=params["lr"], weight_decay=params["weight_decay"]
+    )
     loss_fn = nn.CrossEntropyLoss()
 
-    wandb_init(params)
+    if params["wandb_log"]:
+        wandb_init(params)
 
     val_accs = [0, 0]
     for _ in range(params["n_epochs"]):
@@ -143,30 +158,33 @@ def train(
             wandb_log=params["wandb_log"],
         )
         acc = eval_epoch(
-            model=model, dataloader=test_dataloader, device=device, wandb_log=params["wandb_log"]
+            model=model,
+            dataloader=test_dataloader,
+            device=device,
+            wandb_log=params["wandb_log"],
         )
-        if abs(acc - val_accs[-1]) < 0.01 and abs(val_accs[-1] - val_accs[-2]) < 0.01:
+        if (abs(acc - val_accs[-1]) < 0.01) and (
+            abs(val_accs[-1] - val_accs[-2]) < 0.01
+        ):
+            print("stop")
             val_accs.append(acc)
             break
         val_accs.append(acc)
     if params["save"]:
         save_checkpoint(model=model, path=path)
+    print("finish")
     wandb.finish()
 
 
-def train_distilled(
-    device,
-    params,
-    teacher_path,
-    path="distilled",
-    add_mse=False
-):
+def train_distilled(device, params, teacher_path, path="distilled", add_mse=False):
     teacher_model = Resnet101(num_classes=10, pretrained=True).to(device)
-    teacher_model.load_state_dict(torch.load(teacher_path)["resnet"])
+    teacher_model.load_state_dict(torch.load(teacher_path), strict=False)
     teacher_model.eval()
     student_model = Resnet101(num_classes=10, pretrained=False).to(device)
 
-    train_dataloader, test_dataloader = download_data(params["batch_size"], params["num_workers"])
+    train_dataloader, test_dataloader = download_data(
+        params["batch_size"], params["num_workers"]
+    )
 
     optimizer = torch.optim.Adam(
         student_model.parameters(), lr=params["lr"], weight_decay=params["weight_decay"]
@@ -184,7 +202,7 @@ def train_distilled(
             loss_fn=loss,
             device=device,
             wandb_log=params["wandb_log"],
-            add_mse=add_mse
+            add_mse=add_mse,
         )
         acc = eval_epoch(
             model=student_model,

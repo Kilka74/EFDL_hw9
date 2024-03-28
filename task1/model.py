@@ -15,10 +15,15 @@ class Resnet101(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         if pretrained:
+            print("prerained case")
             self.model = resnet101(weights=ResNet101_Weights.DEFAULT)
+            print(sum(p.numel() for p in self.model.parameters()))
+            
         else:
+            print("untrained case")
             self.model = resnet101()
             self.model.layer3 = self.model.layer3[0]
+            print(sum(p.numel() for p in self.model.parameters()))
 
         self.model.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, bias=False)
         self.model.maxpool = Identity()
