@@ -22,7 +22,7 @@ def main():
     # TODO: add argparse/hydra/... to manage hyperparameters like batch_size, path to pretrained model, etc
 
     # Sparsification recipe -- yaml file with instructions on how to sparsify the model
-    recipe_path = "recipe.yaml"
+    recipe_path = "../recipe.yaml"
     assert Path(recipe_path).exists(), "Didn't find sparsification recipe!"
 
     checkpoints_path = Path("checkpoints")
@@ -33,7 +33,7 @@ def main():
     NUM_CLASSES = 10  # number of Imagenette classes
     model = Resnet101(num_classes=NUM_CLASSES, pretrained=False)
     model.load_state_dict(torch.load("distilled_with_mse.pth"), strict=False)
-
+    # model = torch.fx.symbolic_trace(model)
     save_onnx(model, checkpoints_path / "baseline_resnet.onnx", convert_qat=False)
 
     # Dataset creation
@@ -55,6 +55,8 @@ def main():
     optimizer = manager.modify(model, optimizer, steps_per_epoch=len(train_loader))
 
     # TODO: implement `train_one_epoch` function to structure the code better
+    with open('output.txt', 'w') as f:
+        f.write("start\n")
     pbar = tqdm(range(manager.max_epochs), desc="epoch")
     for epoch in pbar:
         running_loss = 0.0
@@ -88,7 +90,9 @@ def main():
                 preds = torch.argmax(outputs, dim=-1)
                 running_corrects += torch.sum(preds == labels.data)
             print(f"Test Accuracy: {running_corrects / len(test_loader.dataset)}")
-
+            with open("output.txt", "a") as f:
+                f.write(f"Test Accuracy: {running_corrects / len(test_loader.dataset)}\n")
+    
     # TODO: implement `evaluate` function to measure accuracy on the test set
 
     manager.finalize(model)
